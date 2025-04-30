@@ -1,0 +1,156 @@
+import requests
+from bs4 import BeautifulSoup
+import json
+import socket
+import ssl
+import time
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+import streamlit as st
+
+# Función para verificar la seguridad de la conexión SSL/TLS
+def check_ssl(url):
+    try:
+        context = ssl.create_default_context()
+        with context.wrap_socket(socket.socket(), server_hostname=url) as s:
+            s.connect((url, 443))
+            ssl_info = s.getpeercert()
+            return ssl_info
+    except Exception as e:
+        return f"Error SSL: {e}"
+
+# Función para obtener las tecnologías del sitio web (servidor, tecnologías de backend)
+def check_technologies(url):
+    headers = requests.head(url).headers
+    technologies = {
+        "Server": headers.get('Server', 'Unknown'),
+        "X-Powered-By": headers.get('X-Powered-By', 'Unknown'),
+        "Content-Type": headers.get('Content-Type', 'Unknown')
+    }
+    return technologies
+
+# Función para verificar vulnerabilidad de SQL Injection
+def check_sql_injection(url):
+    payload = "' OR 1=1 --"
+    response = requests.get(url + payload)
+    if "error" in response.text or "SQL" in response.text:
+        return "Posible vulnerabilidad de SQL Injection"
+    return "No se detectaron vulnerabilidades de SQL Injection"
+
+# Función para realizar análisis de XSS
+def check_xss(url):
+    payload = "<script>alert('XSS')</script>"
+    response = requests.get(url + payload)
+    if payload in response.text:
+        return "Posible vulnerabilidad de XSS"
+    return "No se detectaron vulnerabilidades de XSS"
+
+# Función para realizar un análisis de rendimiento básico
+def check_performance(url):
+    start_time = time.time()
+    response = requests.get(url)
+    load_time = time.time() - start_time
+    if load_time > 3:
+        return f"El tiempo de carga es alto: {load_time:.2f} segundos"
+    return f"El tiempo de carga es: {load_time:.2f} segundos"
+
+# Función para verificar accesibilidad SEO
+def check_seo_accessibility(url):
+    response = requests.get(url)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    
+    # SEO básico: verificar si hay una etiqueta <title> y <meta description>
+    title = soup.find('title')
+    description = soup.find('meta', attrs={"name": "description"})
+    
+    seo_info = {
+        "Title": title.string if title else "No title tag found",
+        "Description": description['content'] if description else "No meta description found"
+    }
+    
+    # Accesibilidad: Verificar etiquetas alt en las imágenes
+    images = soup.find_all('img')
+    alt_text_count = sum(1 for img in images if img.get('alt'))
+    accessibility = f"El {alt_text_count}/{len(images)} imágenes tienen texto alternativo."
+    
+    return seo_info, accessibility
+
+# Función para realizar una simulación de ataque CSRF (esto es solo un ejemplo básico)
+def check_csrf(url):
+    payload = "<img src='http://attacker.com/evil.jpg'/>"
+    response = requests.get(url + payload)
+    if payload in response.text:
+        return "Posible vulnerabilidad de CSRF"
+    return "No se detectaron vulnerabilidades de CSRF"
+
+# Función para enviar el reporte por correo electrónico
+def send_email_report(report, recipient_email):
+    sender_email = "tu_correo@example.com"
+    sender_password = "tu_contraseña"
+    
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = recipient_email
+    msg['Subject'] = "Reporte de Auditoría Web"
+    
+    body = json.dumps(report, indent=4)
+    msg.attach(MIMEText(body, 'plain'))
+    
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        text = msg.as_string()
+        server.sendmail(sender_email, recipient_email, text)
+        server.quit()
+        return "Reporte enviado correctamente por correo"
+    except Exception as e:
+        return f"Error al enviar correo: {e}"
+
+# Función para crear el reporte completo de la auditoría
+def create_report(url, recipient_email):
+    report = {}
+    report["URL"] = url
+    report["SSL_TLSevaluation"] = check_ssl(url)
+    report["Technologies"] = check_technologies(url)
+    report["SQLInjection"] = check_sql_injection(url)
+    report["XSS"] = check_xss(url)
+    report["Performance"] = check_performance(url)
+    seo_info, accessibility = check_seo_accessibility(url)
+    report["SEO_Accessibility"] = seo_info
+    report["Accessibility"] = accessibility
+    report["CSRF"] = check_csrf(url)
+    
+    # Guardar el reporte como archivo JSON
+    with open('auditoria_report.json', 'w') as json_file:
+        json.dump(report, json_file, indent=4)
+    
+    # Enviar el reporte por correo
+    email_status = send_email_report(report, recipient_email)
+    
+    return report, email_status
+
+# Interfaz de usuario con Streamlit
+def app():
+    st.title('Auditoría Web Completa')
+
+    url = st.text_input('Ingresa la URL para la auditoría (incluye "http:// o https://")', '')
+    email = st.text_input('Ingresa tu correo electrónico para recibir el reporte', '')
+
+    if st.button('Iniciar Auditoría'):
+        if url and email:
+            st.write(f"Iniciando la auditoría para: {url}...")
+
+            # Crear y generar el reporte
+            report, email_status = create_report(url, email)
+            st.write("Resultados de la auditoría:")
+            st.json(report)
+
+            # Confirmar si el correo fue enviado
+            st.write(email_status)
+        else:
+            st.write("Por favor ingresa una URL y tu correo electrónico para continuar.")
+
+if __name__ == '__main__':
+    app()
